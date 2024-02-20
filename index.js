@@ -17,7 +17,7 @@ const http = require('http')
 const server = http.createServer(app)
 const io = socketIo(server, {
   cors: {
-    origin: frontendUrl, 
+    origin: frontendUrl,
     methods: ["GET", "POST"],
     credentials: true
   }
@@ -33,10 +33,27 @@ io.on('connection', (socket) => {
     io.emit('message', message);
   });
 
+  // Store the connected user's socket ID
+  // socket.on('setUserId', (userId) => {
+  //   UsersCollection.set(userId, socket.id);
+  // });
+
+  // Function to send follow notifications
+  // const sendFollowNotification = (recipientId, notification) => {
+  //   const recipientSocketId = connectedUsers.get(recipientId);
+  //   if (recipientSocketId) {
+  //     io.to(recipientSocketId).emit('notification', notification);
+  //   }
+  // };
+
+  // io.emit("blogsNotify", "new blog published")
+
   socket.on('disconnect', () => {
     console.log('User disconnected');
   });
 });
+
+
 server.listen(port, () => {
   console.log(`Server is running on port ${port}`);
 });
@@ -260,36 +277,36 @@ async function run() {
       res.send(result);
     });
 
-  
 
-    app.get("/user_goal/:email",  async (req, res) => {
+
+    app.get("/user_goal/:email", async (req, res) => {
       const email = req.params.email;
       console.log(email);
       // if (email !== req.user.email) {
       //   return res.status(403).send({ message: "forbidden" });
       // } else {
-        const query = { user_email: email };
-        const result = await UserGoalCollection.find(query).toArray();
+      const query = { user_email: email };
+      const result = await UserGoalCollection.find(query).toArray();
+      res.send(result);
+      app.get("/user_goal", async (req, res) => {
+        const result = await UserGoalCollection.find().toArray();
         res.send(result);
-        app.get("/user_goal", async (req, res) => {
-          const result = await UserGoalCollection.find().toArray();
-          res.send(result);
-        });
-      
+      });
+
     });
 
     app.get("/user", async (req, res) => {
       const email = req.query.email;
       let query = {};
-    
-      if (req.query.email) { 
+
+      if (req.query.email) {
         query = { email: email };
       }
-    
+
       const result = await UsersCollection.findOne(query);
       res.send(result);
     });
-    
+
     app.get("/users", verifyToken, async (req, res) => {
       const name = req.query.name
       const page = req.query.page
@@ -550,6 +567,31 @@ async function run() {
       // console.log(followingMembers,followedMembers);
       res.send({ followingMembers, followedMembers })
     })
+
+    // app.get('/following_users_blog/:email', async (req, res) => {
+    //   try {
+    //     const email = req.params.email;
+    //     const query = { email: email };
+    //     const result = await UsersCollection.findOne(query);
+
+    //     if (!result) {
+    //       return res.status(404).json({ message: 'User not found' });
+    //     }
+
+    //     const followingId = (result.following || []).map(id => new ObjectId(id));
+    //     const followingUsers = await UsersCollection.find({ _id: { $in: followingId } }).toArray();
+
+    //     const followingUserIds = followingUsers.map(user => user._id);
+    //     const followingUsersBlogs = await BlogsCollection.find({ userId: { $in: followingUserIds } }).toArray();
+    //     console.log('following users blogs', followingUsersBlogs);
+
+    //     res.json(followingUsersBlogs);
+    //   } catch (error) {
+    //     console.error(error);
+    //     res.status(500).json({ message: 'Server Error' });
+    //   }
+    // });
+
     // connecting people end
 
     // await client.connect();
