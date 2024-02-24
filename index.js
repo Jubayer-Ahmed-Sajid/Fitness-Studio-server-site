@@ -10,6 +10,7 @@ const jwt = require("jsonwebtoken");
 const axios = require("axios");
 const queryString = require("querystring");
 const axiosSecure = require("./axiosSecure");
+const { TIMEOUT } = require("dns");
 const frontendUrl = "http://localhost:5173";
 // middlewareee
 app.use(cookieParser());
@@ -55,9 +56,6 @@ const verifyToken = async (req, res, next) => {
   });
 };
 
-
-
-
 async function run() {
   try {
     // Connect the client to the server	(optional starting in v4.7)
@@ -66,8 +64,10 @@ async function run() {
     const UsersCollection = FitnessStudio.collection("Users");
     const UserGoalCollection = FitnessStudio.collection("User_Goal");
     const BlogsCollection = FitnessStudio.collection("Blogs_Collections");
-    const UserMessagesCollection = FitnessStudio.collection("UserMessages_Collections");
-    const ProductsCollection = FitnessStudio.collection("Products_Collections")
+    const UserMessagesCollection = FitnessStudio.collection(
+      "UserMessages_Collections"
+    );
+    const ProductsCollection = FitnessStudio.collection("Products_Collections");
 
     // verify Admin  start
     const verifyadmin = async (req, res, next) => {
@@ -177,13 +177,17 @@ async function run() {
     });
     // strava end
 
-    // feedbackkk start
+    // feedback start
 
     app.get("/feedback", async (req, res) => {
       const result = await FeedbackCollection.find().toArray();
       res.send(result);
     });
-
+    app.post("/send_feedback", async (req, res) => {
+      const data = req.body;
+      const result = await FeedbackCollection.insertOne(data);
+      res.send(result);
+    });
     // feedback end
 
     // Auth related api start
@@ -231,8 +235,6 @@ async function run() {
       res.send(result);
     });
 
-
-
     app.delete("/user_goal/:id", async (req, res) => {
       const id = req.params.id;
       console.log("delete", id);
@@ -263,7 +265,6 @@ async function run() {
       res.send(result);
     });
 
-
     app.get("/user_goal/:email", verifyToken, async (req, res) => {
       const email = req.params.email;
       console.log(email);
@@ -276,9 +277,7 @@ async function run() {
           .toArray();
         res.send(result);
       }
-    })
-
-
+    });
 
     app.get("/user", async (req, res) => {
       const email = req.query.email;
@@ -291,10 +290,10 @@ async function run() {
       const result = await UsersCollection.findOne(query);
       res.send(result);
     });
-    app.get('/all_Users', async (req, res) => {
+    app.get("/all_Users", async (req, res) => {
       const result = await UsersCollection.find().toArray();
-      res.send(result)
-    })
+      res.send(result);
+    });
     app.get("/users", verifyToken, async (req, res) => {
       const name = req.query.name;
       const page = req.query.page;
@@ -323,6 +322,13 @@ async function run() {
       const result = await UsersCollection.find(query).toArray();
       res.send(result);
     });
+    app.get("/random_people", verifyToken, async (req, res) => {
+      const result = await UsersCollection.find().toArray();
+      const randomNumber = Math.floor(Math.random() * result.length)
+      const result2 = result.slice(randomNumber, randomNumber + 4)
+      res.send(result2);
+    });
+
     app.get("/usersCount", verifyToken, async (req, res) => {
       const count = await UsersCollection.estimatedDocumentCount();
       res.send({ count });
@@ -461,6 +467,7 @@ async function run() {
     app.get("/my_blogs/:email", async (req, res) => {
       const email = req.params.email;
       const query = { userEmail: email };
+      console.log(query);
       const result = await BlogsCollection.find(query).toArray();
       res.send(result);
     });
@@ -500,6 +507,9 @@ async function run() {
       const data = req?.body;
       const followingId = req?.params?.id;
       const followedId = data?._id;
+      const time = new Date().getTime()
+      const followedTime = { time: time, followedId: followingId }
+      console.log('I want to give follow', followingId, followedTime);
       // following peopleId
       const query1 = { _id: new ObjectId(followingId) };
       // followed people id
@@ -511,7 +521,7 @@ async function run() {
       };
       // updated in  followed backend
       const updatedFollowed = {
-        $push: { followed: followingId },
+        $push: { followed: followingId, followedTime: followedTime }
       };
       // result for following
       const followingResult = await UsersCollection.updateOne(
@@ -591,43 +601,127 @@ async function run() {
     // products section started
 
     // getting the products
-    app.get("/products", async(req, res)=>{
+    app.get("/products", async (req, res) => {
+<<<<<<< HEAD
+      const email = req.query.email;
+      const verify = req.query.verify;
+      const sold = req.query.sold;
+=======
       const email = req.query.email
       const verify = req.query.verify
-      let query = {}
-      if(req.query.email){
-        query= {sellerEmail: email}
+      const sold = req.query.sold
+>>>>>>> c42532ff10b52efb287b979cddfab01b516bdf3b
+      console.log(sold);
+      let query = {};
+      if (req.query.email && req.query.verify) {
+        query = { sellerEmail: email, verify: verify };
+      } else if (req.query.email) {
+        query = { sellerEmail: email };
+      } else if (req.query.verify) {
+        query = { verify: verify };
+      } else if (req.query.sold) {
+        query = { sold: sold };
       }
-      if (req.query.verify) {
-        query = {verify: verify}
-      }
-      const result = await ProductsCollection.find(query).toArray()
-      res.send(result)
-    })
+      const result = await ProductsCollection.find(query).toArray();
+      res.send(result);
+    });
+
+    //only one users liveproducts
+    // app.get("/usersproduct", async(req, res)=>{
+    //   const email = req.query.email
+    //   const verify = req.query.verify
+    //   let query1 = {}
+    //   let query2 = {}
+    //   if(req.query.email && req.query.verify){
+    //     console.log(req.query.email);
+    //     console.log(req.query.verify);
+    //   }
+    //   const result = await ProductsCollection.find(query).toArray()
+    //   res.send(result)
+    // })
 
     // product my id
-    app.get('/products/:id', async (req, res)=>{
+<<<<<<< HEAD
+    app.get("/products/:id", async (req, res) => {
+      const id = req.params.id;
+      const query = { _id: new ObjectId(id) };
+      const result = await ProductsCollection.findOne(query);
+      res.send(result);
+    });
+    // postiong the products
+    app.post("/products", async (req, res) => {
+      const data = req.body;
+      const result = await ProductsCollection.insertOne(data);
+      res.send(result);
+    });
+
+    // lets verify the product
+    app.post("/product/:id", async (req, res) => {
+      const id = req.params.id;
+      const filter = { _id: new ObjectId(id) };
+      const option = { upsert: true };
+      const vefify = "verified";
+      const product = {
+        $set: {
+          verify: vefify,
+        },
+      };
+      const result = await ProductsCollection.updateOne(
+        filter,
+        product,
+        option
+      );
+      res.send(result);
+    });
+
+    // Marking sold products
+    app.post("/sold_product/:id", async (req, res) => {
+      const id = req.params.id;
+      const filter = { _id: new ObjectId(id) };
+      const option = { upsert: true };
+      const sold = "sold";
+      // const updateProduct = req.body
+      const product = {
+        $set: {
+          sold: sold,
+        },
+      };
+      const result = await ProductsCollection.updateOne(
+        filter,
+        product,
+        option
+      );
+      res.send(result);
+    });
+
+    // updating or modifing a product
+    app.post("/updateProduct/:id", async (req, res) => {
+      const id = req.params.id;
+      const filter = { _id: new ObjectId(id) };
+      const option = { upsert: true };
+      const updateProduct = req.body;
+=======
+    app.get('/products/:id', async (req, res) => {
       const id = req.params.id
-      const query = {_id: new ObjectId(id)}
+      const query = { _id: new ObjectId(id) }
       const result = await ProductsCollection.findOne(query)
       res.send(result)
     })
     // postiong the products
-    app.post("/products", async(req, res)=>{
+    app.post("/products", async (req, res) => {
       const data = req.body
       const result = await ProductsCollection.insertOne(data)
       res.send(result)
     })
 
     // lets verify the product
-    app.post('/product/:id', async(req, res)=>{
+    app.post('/product/:id', async (req, res) => {
       const id = req.params.id
-      const filter = {_id: new ObjectId(id)}
-      const option = {upsert:true}
+      const filter = { _id: new ObjectId(id) }
+      const option = { upsert: true }
       const vefify = "verified"
-      // const updateProduct = req.body
       const product = {
-        $set:{
+        $set: {
           verify: vefify
         }
       }
@@ -635,60 +729,122 @@ async function run() {
       res.send(result)
     })
 
-    //product deletiong
-    app.get('/Delproduct/:id', async(req, res)=>{
+    // Marking sold products 
+    app.post('/sold_product/:id', async (req, res) => {
       const id = req.params.id
-      const filter = {_id: new ObjectId(id)}
+      const filter = { _id: new ObjectId(id) }
+      const option = { upsert: true }
+      const sold = "sold"
+      // const updateProduct = req.body
+      const product = {
+        $set: {
+          sold: sold
+        }
+      }
+      const result = await ProductsCollection.updateOne(filter, product, option)
+      res.send(result)
+    })
+
+    // updating or modifing a product
+    app.post('/updateProduct/:id', async (req, res) => {
+      const id = req.params.id
+      const filter = { _id: new ObjectId(id) }
+      const option = { upsert: true }
+      const updateProduct = req.body
+>>>>>>> c42532ff10b52efb287b979cddfab01b516bdf3b
+      const product = {
+        $set: {
+          Pname: updateProduct.Pname,
+          Pprice: updateProduct.Pprice,
+          Pquantity: updateProduct.Pquantity,
+          Pdescription: updateProduct.Pdescription,
+          imgUrl: updateProduct.imgUrl,
+          PPhone: updateProduct.PPhone,
+<<<<<<< HEAD
+          PEmail: updateProduct.PEmail,
+        },
+      };
+      const result = await ProductsCollection.updateOne(
+        filter,
+        product,
+        option
+      );
+      res.send(result);
+    });
+
+    //product deletiong
+    app.get("/Delproduct/:id", async (req, res) => {
+      const id = req.params.id;
+      const filter = { _id: new ObjectId(id) };
+      const result = await ProductsCollection.deleteOne(filter);
+      res.send(result);
+    });
+=======
+          PEmail: updateProduct.PEmail
+        }
+      }
+      const result = await ProductsCollection.updateOne(filter, product, option)
+      res.send(result)
+    })
+
+    //product deletiong
+    app.get('/Delproduct/:id', async (req, res) => {
+      const id = req.params.id
+      const filter = { _id: new ObjectId(id) }
       const result = await ProductsCollection.deleteOne(filter)
       res.send(result)
     })
+>>>>>>> c42532ff10b52efb287b979cddfab01b516bdf3b
 
     // products section ended
 
-
-    // message endpoint start 
-    app.post('/send_message', async (req, res) => {
+    // message endpoint start
+    app.post("/send_message", async (req, res) => {
       const data = req.body;
       console.log(data);
       const result = await UserMessagesCollection.insertOne(data);
-      res.send(result)
-    })
-    app.get('/all_message', async (req, res) => {
+      res.send(result);
+    });
+    app.get("/all_message", async (req, res) => {
       const result = await UserMessagesCollection.find().toArray();
-      res.send(result)
-    })
-    app.get('/message_with_friend', async (req, res) => {
+      res.send(result);
+    });
+    app.get("/message_with_friend", async (req, res) => {
       const { you, friend } = req?.query;
       console.log(you, friend);
       const query = {
         $or: [
           { sender: you, receiver: friend },
-          { sender: friend, receiver: you }
-        ]
+          { sender: friend, receiver: you },
+        ],
       };
       const result = await UserMessagesCollection.find(query).toArray();
-      res.send(result)
-    })
-    app.get('/unread_message', async (req, res) => {
+      res.send(result);
+    });
+    app.get("/unread_message", async (req, res) => {
       const { you, friend } = req?.query;
       console.log(you, friend);
-      const query = { sender: friend, receiver: you, seen: false }
+      const query = { sender: friend, receiver: you, seen: false };
       console.log(query);
-      const result = await UserMessagesCollection.find(query).toArray()
-      res.send({ count: result.length })
-    })
-    app.put('/read_message', async (req, res) => {
+      const result = await UserMessagesCollection.find(query).toArray();
+      res.send({ count: result.length });
+    });
+    app.put("/read_message", async (req, res) => {
       const { you, friend } = req?.query;
       console.log(you, friend);
-      const query = { sender: friend, receiver: you, seen: false }
+      const query = { sender: friend, receiver: you, seen: false };
       const updatedData = {
         $set: {
-          seen: true
-        }
-      }
-      const result = await UserMessagesCollection.updateMany(query, updatedData)
-      res.send(result)
-    })
+          seen: true,
+        },
+      };
+      const result = await UserMessagesCollection.updateMany(
+        query,
+        updatedData
+      );
+      res.send(result);
+    });
+
     // message endpoint end
 
     // await client.connect();
@@ -709,5 +865,5 @@ app.get("/", (req, res) => {
 });
 
 app.listen(port, () => {
-  console.log(`Fitness are Running on port ${port}`)
-})
+  console.log(`Fitness are Running on port ${port}`);
+});
