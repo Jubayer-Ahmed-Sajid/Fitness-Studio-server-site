@@ -8,10 +8,13 @@ const port = process.env.PORT || 5000;
 require("dotenv").config();
 const jwt = require("jsonwebtoken");
 const axios = require("axios");
+const stripe = require("stripe")(process.env.STRIPE_SECRET_KEY);
 const queryString = require("querystring");
 const axiosSecure = require("./axiosSecure");
 const { TIMEOUT } = require("dns");
 const frontendUrl = "http://localhost:5173";
+// const frontendUrl = "https://fitness-studio.surge.sh/"
+
 // middlewareee
 app.use(cookieParser());
 app.use(
@@ -63,11 +66,18 @@ async function run() {
     const FeedbackCollection = FitnessStudio.collection("Feedback");
     const UsersCollection = FitnessStudio.collection("Users");
     const UserGoalCollection = FitnessStudio.collection("User_Goal");
+    const QuoteCollections = FitnessStudio.collection("QuoteCollection");
     const BlogsCollection = FitnessStudio.collection("Blogs_Collections");
     const UserMessagesCollection = FitnessStudio.collection(
       "UserMessages_Collections"
     );
     const ProductsCollection = FitnessStudio.collection("Products_Collections");
+    const EventsCollection = FitnessStudio.collection("Events_Collections");
+    const HelpCollection = FitnessStudio.collection("Help_Collection");
+    const EventsBookingCollection = FitnessStudio.collection(
+      "Events_Booking_Collections"
+    );
+    const donationCollection = FitnessStudio.collection("Donation_Collection");
 
     // verify Admin  start
     const verifyadmin = async (req, res, next) => {
@@ -177,19 +187,6 @@ async function run() {
     });
     // strava end
 
-    // feedback start
-
-    app.get("/feedback", async (req, res) => {
-      const result = await FeedbackCollection.find().toArray();
-      res.send(result);
-    });
-    app.post("/send_feedback", async (req, res) => {
-      const data = req.body;
-      const result = await FeedbackCollection.insertOne(data);
-      res.send(result);
-    });
-    // feedback end
-
     // Auth related api start
     app.post("/jwt", async (req, res) => {
       const user = req.body;
@@ -201,18 +198,68 @@ async function run() {
       res
         .cookie("token", token, {
           httpOnly: true,
-          secure: true,
-          sameSite: "None",
+          secure: false,
+          sameSite: "Lax",
+          // secure: process.env.NODE_ENV === "production" ? true : false,
+          // sameSite: process.env.NODE_ENV === "production" ? "none" : "strict",
         })
         .send({ setToken: "success" });
     });
 
     app.post("/logout", async (req, res) => {
       res
-        .cookie("token", "", { expires: new Date(0), httpOnly: true })
+        .cookie("token", "", {
+          expires: new Date(0),
+          httpOnly: true,
+          // secure: process.env.NODE_ENV === "production" ? true : false,
+          // sameSite: process.env.NODE_ENV === "production" ? "none" : "strict",
+        })
         .send({ message: "logged out Successfully" });
     });
 
+    //Payments starts Here
+
+    app.post("/payments", async (req, res) => {
+      const paymentInfo = req.body;
+      const result = await donationCollection.insertOne(paymentInfo);
+      res.send(result);
+    });
+    app.post("/create-payment-intent", async (req, res) => {
+      const { price } = req.body;
+
+      const amount = parseInt(price * 100);
+      const paymentIntent = await stripe.paymentIntents.create({
+        amount: amount,
+        currency: "usd",
+        payment_method_types: ["card"],
+      });
+      res.send({ clientSecret: paymentIntent.client_secret });
+    });
+
+    // Payments ends Here
+
+    // feedback start
+
+    app.get("/feedback", async (req, res) => {
+      const result = await FeedbackCollection.find()
+        .sort({ time: -1 })
+        .limit(10)
+        .toArray();
+      res.send(result);
+    });
+    app.post("/send_feedback", async (req, res) => {
+      const data = req.body;
+      const result = await FeedbackCollection.insertOne(data);
+      res.send(result);
+    });
+    app.get("/feedback", async (req, res) => {
+      const result = await FeedbackCollection.find()
+        .sort({ time: -1 })
+        .toArray();
+      res.send(result);
+    });
+
+    // feedback end
     // Auth related api end
 
     // fitbit api
@@ -229,7 +276,7 @@ async function run() {
       res.send(result);
     });
 
-    app.post("/user_goal", verifyToken, async (req, res) => {
+    app.post("/user_goal", async (req, res) => {
       const goalInfo = req.body;
       const result = await UserGoalCollection.insertOne(goalInfo);
       res.send(result);
@@ -251,19 +298,140 @@ async function run() {
       const data = req.body;
       console.log("id", id, data);
       const filter = { _id: new ObjectId(id) };
-      const options = { upsert: true };
-      const updatedUSer = {
-        $set: {
-          user_current_weight: data.user_current_weight,
-        },
-      };
-      const result = await UserGoalCollection.updateOne(
-        filter,
-        updatedUSer,
-        options
-      );
+      const filter2 = { email: data?.email };
+      let updatedUserGoal = {};
+
+      // Strength training goal update starts here
+
+      if (data?.tracking_goal === "Strength_training") {
+        console.log("the whole object is", data);
+        const options = { upsert: true };
+        if (parseInt(data?.target1Rm) <= data?.new_current1rm) {
+          console.log("strength training goal completed");
+          updatedUserGoal = {
+            $set: {
+              new_current1rm: data?.new_current1rm,
+              completed: true,
+              completed_time: new Date().getTime(),
+            },
+          };
+        } else {
+          updatedUserGoal = {
+            $set: {
+              new_current1rm: data?.new_current1rm,
+            },
+          };
+          console.log("current covered distance", updatedUserGoal);
+        }
+        const result = await UserGoalCollection.updateOne(
+          filter,
+          updatedUserGoal,
+          options
+        );
+        res.send(result);
+      }
+
+      // Strength training goal update ends here
+
+      // Endurance Goal update starts
+      else if (data?.tracking_goal === "Endurance") {
+        const options = { upsert: true };
+        if (data?.current_distance >= data?.distance) {
+          console.log("Endurance goal completed");
+          updatedUserGoal = {
+            $set: {
+              current_distance: data?.current_distance,
+              completed: true,
+              completed_time: new Date().getTime(),
+            },
+          };
+        } else {
+          updatedUserGoal = {
+            $set: {
+              current_distance: data?.current_distance,
+            },
+          };
+          console.log("current covered distance", updatedUserGoal);
+        }
+        const result = await UserGoalCollection.updateOne(
+          filter,
+          updatedUserGoal,
+          options
+        );
+        res.send(result);
+      }
+
+      // Endurance Goal update end
+
+      // Weight management goal update start
+      else {
+        const updatedUserGoal2 = {
+          $set: {
+            weight: data.current_weight,
+          },
+        };
+        const options = { upsert: true };
+        console.log(
+          "data is",
+          data?.goalType,
+          data?.targetWeight,
+          data.current_weight
+        );
+        if (
+          data?.goalType == "gainWeight" &&
+          data?.targetWeight <= data.current_weight
+        ) {
+          console.log("Completed");
+          updatedUserGoal = {
+            $set: {
+              current_weight: data.current_weight,
+              completed: true,
+              completed_time: new Date().getTime(),
+            },
+          };
+        } else if (
+          data?.goalType == "lossWeight" &&
+          data?.targetWeight >= data.current_weight
+        ) {
+          console.log("Completed");
+          updatedUserGoal = {
+            $set: {
+              current_weight: data.current_weight,
+              completed: true,
+              completed_time: new Date().getTime(),
+            },
+          };
+        } else {
+          console.log("incompleted");
+          updatedUserGoal = {
+            $set: {
+              current_weight: data.current_weight,
+            },
+          };
+        }
+
+        console.log("current weight", updatedUserGoal);
+        const result = await UserGoalCollection.updateOne(
+          filter,
+          updatedUserGoal,
+          options
+        );
+        const result2 = await UsersCollection.updateOne(
+          filter2,
+          updatedUserGoal2,
+          options
+        );
+        res.send(result);
+      }
+    });
+    // Weight management goal update ends
+
+    // Quote related api starts here
+    app.get("/quotes", async (req, res) => {
+      const result = await QuoteCollections.find().toArray();
       res.send(result);
     });
+    // Quote related api ends here
 
     app.get("/user_goal/:email", verifyToken, async (req, res) => {
       const email = req.params.email;
@@ -271,13 +439,39 @@ async function run() {
       if (email !== req.user.email) {
         return res.status(403).send({ message: "forbidden" });
       } else {
-        const query = { user_email: email };
+        const query = { user_email: email, completed: false };
         const result = await UserGoalCollection.find(query)
           .sort({ _id: -1 })
           .toArray();
         res.send(result);
       }
     });
+    app.get("/user_completed_goal/:email", verifyToken, async (req, res) => {
+      const email = req.params.email;
+      console.log(email);
+      if (email !== req.user.email) {
+        return res.status(403).send({ message: "forbidden" });
+      } else {
+        const query = { user_email: email, completed: true };
+        const result = await UserGoalCollection.find(query).toArray();
+        res.send(result);
+      }
+    });
+    app.get(
+      "/user_completed_goal_count/:email",
+      verifyToken,
+      async (req, res) => {
+        const email = req.params.email;
+        console.log(email);
+        if (email !== req.user.email) {
+          return res.status(403).send({ message: "forbidden" });
+        } else {
+          const query = { user_email: email, completed: true };
+          const result = await UserGoalCollection.find(query).toArray();
+          res.send({ completedGoal: result?.length });
+        }
+      }
+    );
 
     app.get("/user", async (req, res) => {
       const email = req.query.email;
@@ -324,8 +518,8 @@ async function run() {
     });
     app.get("/random_people", verifyToken, async (req, res) => {
       const result = await UsersCollection.find().toArray();
-      const randomNumber = Math.floor(Math.random() * result.length)
-      const result2 = result.slice(randomNumber, randomNumber + 4)
+      const randomNumber = Math.floor(Math.random() * result.length);
+      const result2 = result.slice(randomNumber, randomNumber + 4);
       res.send(result2);
     });
 
@@ -480,7 +674,7 @@ async function run() {
 
     app.delete("/delete_blog/:id", async (req, res) => {
       const id = req?.params?.id;
-      console.log(id);
+      // console.log(id);
       const query = { _id: new ObjectId(id) };
       const result = await BlogsCollection.deleteOne(query);
       res.send(result);
@@ -507,9 +701,9 @@ async function run() {
       const data = req?.body;
       const followingId = req?.params?.id;
       const followedId = data?._id;
-      const time = new Date().getTime()
-      const followedTime = { time: time, followedId: followingId }
-      console.log('I want to give follow', followingId, followedTime);
+      const time = new Date().getTime();
+      const followedTime = { time: time, followedId: followingId };
+      console.log("I want to give follow", followingId, followedTime);
       // following peopleId
       const query1 = { _id: new ObjectId(followingId) };
       // followed people id
@@ -521,7 +715,7 @@ async function run() {
       };
       // updated in  followed backend
       const updatedFollowed = {
-        $push: { followed: followingId, followedTime: followedTime }
+        $push: { followed: followingId, followedTime: followedTime },
       };
       // result for following
       const followingResult = await UsersCollection.updateOne(
@@ -550,7 +744,9 @@ async function run() {
       const removeFromFollowed = {
         $pull: { followed: followingId },
       };
+
       // result for following
+
       const unfollowingResult = await UsersCollection.updateOne(
         query1,
         removeFromFollowing
@@ -562,6 +758,27 @@ async function run() {
       );
       res.send({ unfollowingResult, unfollowedResult });
     });
+
+    app.get("/following_users_blog/:email", async (req, res) => {
+      try {
+        const email = req.params.email;
+        const query = { email: email };
+        const result = await UsersCollection.findOne(query);
+
+        if (!result) {
+          return res.status(404).json({ message: "User not found" });
+        }
+        const followingUsersBlogs = await BlogsCollection.find({
+          userId: { $in: result.following || [] },
+        }).toArray();
+        res.send(followingUsersBlogs);
+      } catch (error) {
+        console.error(error);
+        res.status(500).json({ message: "Server Error" });
+      }
+    });
+    // connecting people end
+
     app.get("/get_following_and_follower/:email", async (req, res) => {
       const email = req.params.email;
       const query = { email: email };
@@ -602,10 +819,9 @@ async function run() {
 
     // getting the products
     app.get("/products", async (req, res) => {
-      const email = req.query.email
-      const verify = req.query.verify
-      const sold = req.query.sold
-      console.log(sold);
+      const email = req.query.email;
+      const verify = req.query.verify;
+      const sold = req.query.sold;
       let query = {};
       if (req.query.email && req.query.verify) {
         query = { sellerEmail: email, verify: verify };
@@ -635,56 +851,64 @@ async function run() {
     // })
 
     // product my id
-    app.get('/products/:id', async (req, res) => {
-      const id = req.params.id
-      const query = { _id: new ObjectId(id) }
-      const result = await ProductsCollection.findOne(query)
-      res.send(result)
-    })
+    app.get("/products/:id", async (req, res) => {
+      const id = req.params.id;
+      const query = { _id: new ObjectId(id) };
+      const result = await ProductsCollection.findOne(query);
+      res.send(result);
+    });
     // postiong the products
     app.post("/products", async (req, res) => {
-      const data = req.body
-      const result = await ProductsCollection.insertOne(data)
-      res.send(result)
-    })
+      const data = req.body;
+      const result = await ProductsCollection.insertOne(data);
+      res.send(result);
+    });
 
     // lets verify the product
-    app.post('/product/:id', async (req, res) => {
-      const id = req.params.id
-      const filter = { _id: new ObjectId(id) }
-      const option = { upsert: true }
-      const vefify = "verified"
+    app.post("/product/:id", async (req, res) => {
+      const id = req.params.id;
+      const filter = { _id: new ObjectId(id) };
+      const option = { upsert: true };
+      const vefify = "verified";
       const product = {
         $set: {
-          verify: vefify
-        }
-      }
-      const result = await ProductsCollection.updateOne(filter, product, option)
-      res.send(result)
-    })
+          verify: vefify,
+        },
+      };
+      const result = await ProductsCollection.updateOne(
+        filter,
+        product,
+        option
+      );
+      res.send(result);
+    });
 
-    // Marking sold products 
-    app.post('/sold_product/:id', async (req, res) => {
-      const id = req.params.id
-      const filter = { _id: new ObjectId(id) }
-      const option = { upsert: true }
-      const sold = "sold"
+    // Marking sold products
+    app.post("/sold_product/:id", async (req, res) => {
+      const id = req.params.id;
+      const filter = { _id: new ObjectId(id) };
+      const option = { upsert: true };
+      const sold = "sold";
       // const updateProduct = req.body
       const product = {
         $set: {
-          sold: sold
-        }
-      }
-      const result = await ProductsCollection.updateOne(filter, product, option)
-      res.send(result)
-    })
+          sold: sold,
+        },
+      };
+      const result = await ProductsCollection.updateOne(
+        filter,
+        product,
+        option
+      );
+      res.send(result);
+    });
 
     // updating or modifing a product
-    app.post('/updateProduct/:id', async (req, res) => {
-      const id = req.params.id
-      const filter = { _id: new ObjectId(id) }
-      const option = { upsert: true }
-      const updateProduct = req.body
+    app.post("/updateProduct/:id", async (req, res) => {
+      const id = req.params.id;
+      const filter = { _id: new ObjectId(id) };
+      const option = { upsert: true };
+      const updateProduct = req.body;
       const product = {
         $set: {
           Pname: updateProduct.Pname,
@@ -693,20 +917,24 @@ async function run() {
           Pdescription: updateProduct.Pdescription,
           imgUrl: updateProduct.imgUrl,
           PPhone: updateProduct.PPhone,
-          PEmail: updateProduct.PEmail
-        }
-      }
-      const result = await ProductsCollection.updateOne(filter, product, option)
-      res.send(result)
-    })
+          PEmail: updateProduct.PEmail,
+        },
+      };
+      const result = await ProductsCollection.updateOne(
+        filter,
+        product,
+        option
+      );
+      res.send(result);
+    });
 
     //product deletiong
-    app.get('/Delproduct/:id', async (req, res) => {
-      const id = req.params.id
-      const filter = { _id: new ObjectId(id) }
-      const result = await ProductsCollection.deleteOne(filter)
-      res.send(result)
-    })
+    app.get("/Delproduct/:id", async (req, res) => {
+      const id = req.params.id;
+      const filter = { _id: new ObjectId(id) };
+      const result = await ProductsCollection.deleteOne(filter);
+      res.send(result);
+    });
 
     // products section ended
 
@@ -741,6 +969,17 @@ async function run() {
       const result = await UserMessagesCollection.find(query).toArray();
       res.send({ count: result.length });
     });
+    app.get("/all_unread_message_count", async (req, res) => {
+      const { you } = req?.query;
+      console.log(you);
+      const query = { receiver: you, seen: false };
+      console.log(query);
+      const result = await UserMessagesCollection.find(query).toArray();
+      let newArray = result.filter(arr=> arr.sender && arr.receiver)
+      console.log(newArray.length, result.length);
+      
+      res.send({ count: newArray.length,result: newArray });
+    });
     app.put("/read_message", async (req, res) => {
       const { you, friend } = req?.query;
       console.log(you, friend);
@@ -756,8 +995,149 @@ async function run() {
       );
       res.send(result);
     });
-
     // message endpoint end
+    //help endpoint started
+    app.get("/help", async (req, res) => {
+      const verify = req.query.verify;
+      let query = {};
+      if (req.query.verify) {
+        query = { verify: verify };
+      }
+
+      const result = await HelpCollection.find(query).toArray();
+      res.send(result);
+    });
+    app.get("/help/:id", async (req, res) => {
+      const id = req.params.id;
+      const filter = new ObjectId(id);
+      const result = await HelpCollection.find(filter).toArray();
+      res.send(result);
+    });
+
+    app.post("/help/:id", async (req, res) => {
+      const id = req.params.id;
+      const filter = { _id: new ObjectId(id) };
+      const option = { upsert: true };
+      const vefify = "verified";
+      const product = {
+        $set: {
+          verify: vefify,
+        },
+      };
+      const result = await HelpCollection.updateOne(filter, product, option);
+      res.send(result);
+    });
+    app.post("/help", async (req, res) => {
+      const data = req.body;
+      const result = await HelpCollection.insertOne(data);
+      res.send(result);
+    });
+
+    app.get("/DeleteHelp/:id", async (req, res) => {
+      const id = req.params.id;
+      const filter = { _id: new ObjectId(id) };
+      const result = await HelpCollection.deleteOne(filter);
+      res.send(result);
+    });
+    // Help collection starts
+
+    app.put("/help/update/:id", verifyToken, async (req, res) => {
+      const id = req.params;
+      const { donatedAmount } = req.body;
+
+      const filter = { _id: new ObjectId(id) };
+      const updatedDoc = {
+        $inc: {
+          donated_amount: donatedAmount,
+        },
+      };
+      const result = await HelpCollection.updateOne(filter, updatedDoc);
+      res.send(result);
+    });
+    // Help collection ends
+
+    //help endpoint ended
+    // event api start
+    app.get("/all_event", async (req, res) => {
+      const result = await EventsCollection.find().toArray();
+      res.send(result);
+    });
+    app.get("/all_event/:id", async (req, res) => {
+      const id = req.params.id;
+      const query = { _id: new ObjectId(id) };
+      const result = await EventsCollection.findOne(query);
+      res.send(result);
+    });
+    app.get("/events_booking/:email", async (req, res) => {
+      const email = req.params.email;
+      const filter = { user_email: email };
+      const result = await EventsBookingCollection.find(filter).toArray();
+      res.send(result);
+    });
+    app.post("/all_event", async (req, res) => {
+      const data = req.body;
+      const result = await EventsCollection.insertOne(data);
+      res.send(result);
+    });
+    app.post("/events_booking", async (req, res) => {
+      const data = req.body;
+      const result = await EventsBookingCollection.insertOne(data);
+      res.send(result);
+    });
+    app.delete("/cancel_booking/:id", async (req, res) => {
+      const id = req?.params?.id;
+      const query = { _id: new ObjectId(id) };
+      const result = await EventsBookingCollection.deleteOne(query);
+      res.send(result);
+    });
+    app.delete("/all_event/:id", async (req, res) => {
+      const id = req?.params?.id;
+      const query = { _id: new ObjectId(id) };
+      const result = await EventsCollection.deleteOne(query);
+      res.send(result);
+    });
+    app.put("/update_event/:id", async (req, res) => {
+      const updateInfo = req.body;
+      const id = req.params.id;
+      const filter = { _id: new ObjectId(id) };
+      const options = { upsert: true };
+      const updateDoc = {
+        $set: {
+          event_name: updateInfo.event_name,
+          event_description: updateInfo.event_description,
+          event_image: updateInfo.event_image,
+          event_price: updateInfo.event_price,
+          event_tickets: updateInfo.event_tickets,
+          event_start_date: updateInfo.event_start_date,
+          event_start_end: updateInfo.event_start_end,
+        },
+      };
+      const result = await EventsCollection.updateOne(
+        filter,
+        updateDoc,
+        options
+      );
+      res.send(result);
+    });
+    app.put("/event_booking_update/:id", async (req, res) => {
+      const updateInfo = req.body;
+      const id = req.params.id;
+      const filter = { _id: new ObjectId(id) };
+      const options = { upsert: true };
+      const updateDoc = {
+        $set: {
+          event_tickets: updateInfo.event_tickets,
+        },
+      };
+      const result = await EventsCollection.updateOne(
+        filter,
+        updateDoc,
+        options
+      );
+      res.send(result);
+    });
+
+    // event api end
 
     // await client.connect();
     // Send a ping to confirm a successful connection
